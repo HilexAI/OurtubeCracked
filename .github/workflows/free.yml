@@ -1,0 +1,394 @@
+name: 02 - 💚  رایگان (کیفیت پایین)
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_urls:
+        description: '📥 لینک ویدیو - چند لینک با فاصله  (دقت کنید که نسخه رایگان امکاناتی چون انتخاب کیفیت ، زیرنویس ، تبدیل به صدا ، رمزگذاری روی فایل و ... ندارد و فقط کیفیت پایین دانلود میکند'
+        required: true
+        type: string
+
+jobs:
+  get-video-free:
+    name: "📥 دانلود رایگان (360p)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: write
+
+    steps:
+      - name: Show Free Version Notice
+        run: |
+          echo ""
+          echo "========================================"
+          echo "🆓 نسخه رایگان دانلودر"
+          echo "========================================"
+          echo ""
+          echo "⚠️ این نسخه رایگان است و محدودیت‌های زیر را دارد:"
+          echo ""
+          echo "   ❌ کیفیت پایین (360p)"
+          echo "   ❌ بدون انتخاب کیفیت"
+          echo "   ❌ بدون دانلود MP3"
+          echo "   ❌ بدون زیرنویس"
+          echo "   ❌ بدون رمزگذاری فایل"
+          echo ""
+          echo "✨ برای دسترسی به تمام امکانات:"
+          echo "   1️⃣ به workflow شماره 01 بروید"
+          echo "   2️⃣ کد فعالسازی بگیرید از: pay.avasam.ir/link/769604"
+          echo ""
+          echo "========================================"
+          echo ""
+
+      - name: Check URL provided
+        run: |
+          if [ -z "${{ github.event.inputs.video_urls }}" ]; then
+            echo "❌ No video URL provided!"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure Git for Large Files
+        run: |
+          git config --global http.postBuffer 524288000
+          git config --global http.maxRequestBuffer 100M
+          git config --global core.compression 0
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+      - name: Start WARP Container
+        run: |
+          echo "Starting Cloudflare WARP container..."
+          docker network create warp-net || true
+          docker run -d \
+            --name warp \
+            --restart=always \
+            --network warp-net \
+            -p 1080:1080 \
+            --cap-add NET_ADMIN \
+            --sysctl net.ipv6.conf.all.disable_ipv6=0 \
+            --sysctl net.ipv4.conf.all.src_valid_mark=1 \
+            -v warp-data:/var/lib/cloudflare-warp \
+            caomingjun/warp
+          echo "Waiting for WARP to initialize (15 seconds)..."
+          sleep 15
+          for i in {1..5}; do
+            RESULT=$(curl -s --max-time 5 --socks5-hostname 127.0.0.1:1080 https://cloudflare.com/cdn-cgi/trace 2>/dev/null || echo "failed")
+            if echo "$RESULT" | grep -qE "warp=(on|plus)"; then
+              echo "WARP is active!"
+              break
+            else
+              echo "Attempt $i/5 - WARP not ready yet, waiting..."
+              sleep 5
+            fi
+          done
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip ffmpeg zip p7zip-full curl jq bc unzip
+          curl -fsSL https://deno.land/install.sh | sh
+          export DENO_INSTALL="$HOME/.deno"
+          export PATH="$DENO_INSTALL/bin:$PATH"
+          echo "$DENO_INSTALL/bin" >> $GITHUB_PATH
+          deno --version
+          pip3 install --upgrade yt-dlp
+
+      - name: Download YouTube Video (Free - 360p)
+        env:
+          YT_URLS: ${{ github.event.inputs.video_urls }}
+          REPO_OWNER_ENV: ${{ github.repository_owner }}
+          REPO_NAME_ENV: ${{ github.event.repository.name }}
+          BRANCH_ENV: ${{ github.ref_name }}
+        run: |
+          REPO_OWNER="${REPO_OWNER_ENV}"
+          REPO_NAME="${REPO_NAME_ENV}"
+          BRANCH="${BRANCH_ENV}"
+          URLS_RAW="${YT_URLS}"
+          read -ra URL_LIST <<< "$URLS_RAW"
+          TOTAL_URLS=${#URL_LIST[@]}
+          QUALITY="360"
+          FORMAT="bestvideo[height<=360]+bestaudio/bestvideo[height<=360]*+bestaudio*/best[height<=360]/best"
+          SPLIT_MB=45
+          SPLIT_BYTES=$(( SPLIT_MB * 1024 * 1024 ))
+          BACKUP_DIR="/tmp/video_backup_$$"
+          mkdir -p "$BACKUP_DIR"
+          mkdir -p videos
+          > /tmp/video_info.txt
+
+          echo "========================================"
+          echo "🆓 نسخه رایگان - کیفیت 360p"
+          echo "========================================"
+          echo "Total URLs to download: $TOTAL_URLS"
+
+          sanitize_name() {
+            echo "$1" | sed 's/ /-/g' | sed 's/　/-/g' | tr -s '-'
+          }
+          urlencode() {
+            python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$1"
+          }
+          download_video() {
+            local METHOD=$1; local URL=$2; local TMP_DIR=$3;
+            echo "Trying download method $METHOD..."
+            COMMON_FLAGS="--merge-output-format mp4 --write-thumbnail --convert-thumbnails jpg --no-cache-dir --output ${TMP_DIR}/%(title)s.%(ext)s --no-part --no-playlist --retries 5 --fragment-retries 5 --no-check-certificates --concurrent-fragments 8 --buffer-size 16K --http-chunk-size 10M --progress --newline"
+            case $METHOD in
+              1) yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=web" --js-runtimes deno --remote-components ejs:github --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" "$URL";;
+              2) yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=web" --js-runtimes deno --remote-components ejs:npm "$URL";;
+              3) yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=web,mweb,android_vr" --js-runtimes deno --remote-components ejs:github "$URL";;
+              4) yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=mweb" "$URL";;
+              5) yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=android_vr" "$URL";;
+              6) yt-dlp --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=web" --js-runtimes deno --remote-components ejs:github "$URL";;
+              7) yt-dlp --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=mweb" "$URL";;
+              8) yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=android" "$URL";;
+            esac
+          }
+          RANDOM_WORDS=("alpha" "beta" "gamma" "delta" "epsilon" "zeta" "theta" "kappa" "lambda" "sigma")
+          get_random_word() { echo "${RANDOM_WORDS[$RANDOM % ${#RANDOM_WORDS[@]}]}_$RANDOM"; }
+          get_unique_folder() {
+            local BASE_PATH="$1"; local NAME="$2";
+            if [ ! -d "$BASE_PATH/$NAME" ] && [ ! -d "$BACKUP_DIR/$NAME" ]; then echo "$NAME"; return; fi
+            local RANDOM_SUFFIX=$(get_random_word)
+            while [ -d "$BASE_PATH/${NAME}_${RANDOM_SUFFIX}" ] || [ -d "$BACKUP_DIR/${NAME}_${RANDOM_SUFFIX}" ]; do RANDOM_SUFFIX=$(get_random_word); done
+            echo "${NAME}_${RANDOM_SUFFIX}"
+          }
+          normalize_youtube_url() {
+            local INPUT_URL="$1"
+            if [[ "$INPUT_URL" =~ youtu\.be/([a-zA-Z0-9_-]+) ]]; then
+              VIDEO_ID="${BASH_REMATCH[1]}"; VIDEO_ID="${VIDEO_ID%%\?*}";
+              echo "https://www.youtube.com/watch?v=${VIDEO_ID}"
+            else
+              echo "$INPUT_URL"
+            fi
+          }
+
+          URL_INDEX=0
+          for URL in "${URL_LIST[@]}"; do
+            URL_INDEX=$((URL_INDEX + 1))
+            URL=$(normalize_youtube_url "$URL")
+            echo "============================================================"
+            echo "Processing URL $URL_INDEX / $TOTAL_URLS : $URL"
+            echo "============================================================"
+            TMP_DIR="tmp_downloads_${URL_INDEX}"
+            mkdir -p "$TMP_DIR"
+            DOWNLOAD_SUCCESS=false
+            for METHOD in 1 2 3 4 5 6 7 8; do
+              if download_video $METHOD "$URL" "$TMP_DIR"; then
+                echo "Download successful with method $METHOD!"
+                DOWNLOAD_SUCCESS=true
+                break
+              else
+                echo "Method $METHOD failed, waiting 3 seconds..."
+                sleep 3
+              fi
+            done
+            if [ "$DOWNLOAD_SUCCESS" = false ]; then
+              echo "❌ All download methods failed for URL: $URL — skipping."; rm -rf "$TMP_DIR"; continue;
+            fi
+            find "$TMP_DIR" -name "*.part" -delete
+            for FILE in "$TMP_DIR"/*; do
+              [ -f "$FILE" ] || continue
+              if [[ "$FILE" == *.jpg ]] || [[ "$FILE" == *.webp ]]; then continue; fi
+              SIZE=$(stat -c%s "$FILE"); BASENAME=$(basename "$FILE"); FILENAME_NO_EXT="${BASENAME%.*}"; EXT="${BASENAME##*.}";
+              FILENAME_NO_EXT=$(sanitize_name "$FILENAME_NO_EXT")
+              FINAL_FOLDER_NAME=$(get_unique_folder "videos" "$FILENAME_NO_EXT")
+              mkdir -p "$BACKUP_DIR/${FINAL_FOLDER_NAME}"
+              THUMB_FILE=$(ls "$TMP_DIR"/*.jpg 2>/dev/null | head -1)
+              if [ -n "$THUMB_FILE" ] && [ -f "$THUMB_FILE" ]; then cp "$THUMB_FILE" "$BACKUP_DIR/${FINAL_FOLDER_NAME}/thumbnail.jpg"; fi
+              echo "${FILENAME_NO_EXT}|${FINAL_FOLDER_NAME}" >> /tmp/video_info.txt
+              FOLDER_ENCODED=$(urlencode "${FINAL_FOLDER_NAME}")
+              if [ "$SIZE" -gt "$SPLIT_BYTES" ]; then
+                ARCHIVE_BASE="$BACKUP_DIR/${FINAL_FOLDER_NAME}/${FINAL_FOLDER_NAME}"
+                zip -0 -s ${SPLIT_MB}m "${ARCHIVE_BASE}.zip" "$FILE"
+                PART_COUNT=$(ls "$BACKUP_DIR/${FINAL_FOLDER_NAME}/"*.zip "$BACKUP_DIR/${FINAL_FOLDER_NAME}/"*.z[0-9]* 2>/dev/null | wc -l)
+                TOTAL_SIZE=0
+                for part_file in "$BACKUP_DIR/${FINAL_FOLDER_NAME}"/*; do
+                  if [ -f "$part_file" ]; then
+                    PART_SIZE=$(stat -c%s "$part_file")
+                    TOTAL_SIZE=$((TOTAL_SIZE + PART_SIZE))
+                  fi
+                done
+                TOTAL_SIZE_MB=$(echo "scale=2; $TOTAL_SIZE / 1024 / 1024" | bc)
+                DOWNLOAD_LINKS_MD=""
+                LINK_NUM=0
+                for part_file in $(ls "$BACKUP_DIR/${FINAL_FOLDER_NAME}/"*.zip "$BACKUP_DIR/${FINAL_FOLDER_NAME}/"*.z[0-9]* 2>/dev/null | sort -V); do
+                  if [ -f "$part_file" ]; then
+                    PART_BASENAME=$(basename "$part_file")
+                    PART_ENCODED=$(urlencode "${PART_BASENAME}")
+                    RAW_LINK="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/videos/${FOLDER_ENCODED}/${PART_ENCODED}"
+                    LINK_NUM=$((LINK_NUM + 1))
+                    DOWNLOAD_LINKS_MD="${DOWNLOAD_LINKS_MD}| ${LINK_NUM} | \`${PART_BASENAME}\` | [Download](${RAW_LINK}) |"$'\n'
+                  fi
+                done
+                MAIN_ZIP="${FINAL_FOLDER_NAME}.zip"
+                README_FILE="$BACKUP_DIR/${FINAL_FOLDER_NAME}/README.md"
+                {
+                  printf '%s\n' "# ${FILENAME_NO_EXT}"
+                  printf '%s\n' ""
+                  printf '%s\n' "> 🆓 **نسخه رایگان** - کیفیت 360p"
+                  printf '%s\n' "> برای کیفیت بالاتر، MP3، زیرنویس و رمزگذاری به [workflow شماره 01](../../actions) بروید"
+                  printf '%s\n' ""
+                  if [ -f "$BACKUP_DIR/${FINAL_FOLDER_NAME}/thumbnail.jpg" ]; then
+                    printf '%s\n' "<div align=\"center\">"
+                    printf '%s\n' "  <picture>"
+                    printf '%s\n' "    <img src=\"thumbnail.jpg\" width=\"250\" />"
+                    printf '%s\n' "  </picture>"
+                    printf '%s\n' "</div>"
+                    printf '%s\n' ""
+                  fi
+                  printf '%s\n' "---"
+                  printf '%s\n' ""
+                  printf '%s\n' "## Video Information"
+                  printf '%s\n' ""
+                  printf '%s\n' "| Property | Value |"
+                  printf '%s\n' "|----------|-------|"
+                  printf '%s\n' "| **Video Name** | \`${FILENAME_NO_EXT}\` |"
+                  printf '%s\n' "| **Original Link** | [YouTube Video](${URL}) |"
+                  printf '%s\n' "| **Total Size** | **${PART_COUNT} parts** - **${TOTAL_SIZE_MB} MB** |"
+                  printf '%s\n' "| **Quality** | **360p (Free)** |"
+                  printf '%s\n' ""
+                  printf '%s\n' "---"
+                  printf '%s\n' ""
+                  printf '%s\n' "## Download Links"
+                  printf '%s\n' ""
+                  printf '%s\n' "> ⬇️ Download **all parts**, then open \`${MAIN_ZIP}\`"
+                  printf '%s\n' ""
+                  printf '%s\n' "| # | File | Link |"
+                  printf '%s\n' "|---|------|------|"
+                  printf '%s' "${DOWNLOAD_LINKS_MD}"
+                  printf '%s\n' ""
+                  printf '%s\n' "---"
+                  printf '%s\n' ""
+                  printf '%s\n' "*🆓 Free Version - [avasam.ir](https://avasam.ir)*"
+                } > "$README_FILE"
+              else
+                cp "$FILE" "$BACKUP_DIR/${FINAL_FOLDER_NAME}/${FINAL_FOLDER_NAME}.${EXT}"
+                SIZE_MB=$(echo "scale=2; $SIZE / 1024 / 1024" | bc)
+                FILE_ENCODED=$(urlencode "${FINAL_FOLDER_NAME}.${EXT}")
+                RAW_LINK="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/videos/${FOLDER_ENCODED}/${FILE_ENCODED}"
+                README_FILE="$BACKUP_DIR/${FINAL_FOLDER_NAME}/README.md"
+                {
+                  printf '%s\n' "# ${FILENAME_NO_EXT}"
+                  printf '%s\n' ""
+                  printf '%s\n' "> 🆓 **نسخه رایگان** - کیفیت 360p"
+                  printf '%s\n' "> برای کیفیت بالاتر، MP3، زیرنویس و رمزگذاری به [workflow شماره 01](../../actions) بروید"
+                  printf '%s\n' ""
+                  if [ -f "$BACKUP_DIR/${FINAL_FOLDER_NAME}/thumbnail.jpg" ]; then
+                    printf '%s\n' "<div align=\"center\">"
+                    printf '%s\n' "  <picture>"
+                    printf '%s\n' "    <img src=\"thumbnail.jpg\" width=\"250\" />"
+                    printf '%s\n' "  </picture>"
+                    printf '%s\n' "</div>"
+                    printf '%s\n' ""
+                  fi
+                  printf '%s\n' "---"
+                  printf '%s\n' ""
+                  printf '%s\n' "## Video Information"
+                  printf '%s\n' ""
+                  printf '%s\n' "| Property | Value |"
+                  printf '%s\n' "|----------|-------|"
+                  printf '%s\n' "| **Video Name** | \`${FILENAME_NO_EXT}\` |"
+                  printf '%s\n' "| **Original Link** | [YouTube Video](${URL}) |"
+                  printf '%s\n' "| **Total Size** | **${SIZE_MB} MB** |"
+                  printf '%s\n' "| **Quality** | **360p (Free)** |"
+                  printf '%s\n' ""
+                  printf '%s\n' "---"
+                  printf '%s\n' ""
+                  printf '%s\n' "## Download Link"
+                  printf '%s\n' ""
+                  printf '%s\n' "| # | File | Link |"
+                  printf '%s\n' "|---|------|------|"
+                  printf '%s\n' "| 1 | \`${FINAL_FOLDER_NAME}.${EXT}\` | [Download](${RAW_LINK}) |"
+                  printf '%s\n' ""
+                  printf '%s\n' "---"
+                  printf '%s\n' ""
+                  printf '%s\n' "*🆓 Free Version - [avasam.ir](https://avasam.ir)*"
+                } > "$README_FILE"
+              fi
+            done
+            rm -rf "$TMP_DIR"
+          done
+          echo "$BACKUP_DIR" > /tmp/backup_dir_path.txt
+          echo "REPO_OWNER_ENV=${REPO_OWNER_ENV}" > /tmp/env_vars.txt
+          echo "REPO_NAME_ENV=${REPO_NAME_ENV}" >> /tmp/env_vars.txt
+          echo "BRANCH_ENV=${BRANCH_ENV}" >> /tmp/env_vars.txt
+
+      - name: Stop WARP Container
+        if: always()
+        run: |
+          docker stop warp || true
+          docker rm warp || true
+
+      - name: Commit and Push
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          source /tmp/env_vars.txt
+          REPO_OWNER=${REPO_OWNER_ENV}
+          REPO_NAME=${REPO_NAME_ENV}
+          BACKUP_DIR=$(cat /tmp/backup_dir_path.txt)
+
+          BACKUP_FILE_COUNT=$(find "$BACKUP_DIR" -type f 2>/dev/null | wc -l)
+          if [ "$BACKUP_FILE_COUNT" -eq 0 ]; then
+            echo "WARNING: No files downloaded."
+            exit 0
+          fi
+
+          regenerate_master_readme() {
+            MASTER_README="videos/README.md"
+            { echo "# DOWNLOADED VIDEOS LIST :"; echo ""; echo "----"; echo ""; } > "$MASTER_README"
+            NUM=0
+            for folder in videos/*/; do
+              [ -d "$folder" ] || continue
+              FOLDER_NAME=$(basename "$folder")
+              [ -f "$folder/README.md" ] || continue
+              NUM=$((NUM + 1))
+              FOLDER_ENCODED=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$FOLDER_NAME")
+              FOLDER_LINK="https://github.com/${REPO_OWNER}/${REPO_NAME}/tree/${BRANCH}/videos/${FOLDER_ENCODED}"
+              printf -- "- %s - 🎬 [%s](%s)\n" "$NUM" "$FOLDER_NAME" "$FOLDER_LINK" >> "$MASTER_README"
+            done
+          }
+
+          git fetch origin "$BRANCH"
+          git reset --hard origin/"$BRANCH"
+          mkdir -p videos
+          cp -r "$BACKUP_DIR"/* videos/
+
+          git add -f videos/
+          regenerate_master_readme
+          git add -f videos/README.md
+
+          if ! git diff --cached --quiet; then
+            git commit -m "[AVASAM-FREE] YouTube download 360p [skip ci]"
+            PUSH_RETRY=0
+            while [ $PUSH_RETRY -lt 10 ]; do
+              PUSH_RETRY=$((PUSH_RETRY + 1))
+              if timeout 300 git push origin HEAD:"$BRANCH"; then
+                echo ""
+                echo "========================================"
+                echo "✅ دانلود با موفقیت انجام شد!"
+                echo "========================================"
+                echo ""
+                echo "🆓 این نسخه رایگان بود (360p)"
+                echo ""
+                echo "✨ برای کیفیت بالاتر، MP3، زیرنویس و رمزگذاری:"
+                echo "   به workflow شماره 01 بروید"
+                echo "   کد فعالسازی: pay.avasam.ir/link/769604"
+                echo ""
+                echo "========================================"
+                break
+              else
+                echo "Push failed, retry $PUSH_RETRY/10..."
+                sleep 5
+                git fetch origin "$BRANCH"
+                git reset --hard origin/"$BRANCH"
+                cp -r "$BACKUP_DIR"/* videos/
+                git add -f videos/
+                regenerate_master_readme
+                git add -f videos/README.md
+                git diff --cached --quiet || git commit -m "[AVASAM-FREE] YouTube download 360p [skip ci]"
+              fi
+            done
+          fi
