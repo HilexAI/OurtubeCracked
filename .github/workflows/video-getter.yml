@@ -349,7 +349,7 @@ jobs:
           export PATH="$DENO_INSTALL/bin:$PATH"
           echo "$DENO_INSTALL/bin" >> $GITHUB_PATH
           deno --version
-          pip3 install --upgrade yt-dlp
+          pip3 install --upgrade --pre "yt-dlp[default]"
 
       - name: Download YouTube Video(s)
         env:
