@@ -448,7 +448,7 @@ jobs:
             TMP_DIR="tmp_downloads_${URL_INDEX}"
             mkdir -p "$TMP_DIR"
             DOWNLOAD_SUCCESS=false
-            for METHOD in 1 2 3 4 5 6 7 8; do
+            for METHOD in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
               if download_video $METHOD "$URL" "$TMP_DIR"; then
                 echo "Download successful with method $METHOD!"
                 QUALITY_OK=true
