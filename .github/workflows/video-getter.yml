@@ -505,51 +505,50 @@ jobs:
           }
 
           verify_download_quality() {
-            local DIR="$1"
-            local TARGET="$2"
-
-            if [ "$TARGET" = "best" ] || [ "$TARGET" = "audio" ]; then
-              return 0
-            fi
-
-            local found=false
-            local file actual
-
-            while IFS= read -r -d '' file; do
-              found=true
-              actual=$(ffprobe -v error -select_streams v:0                 -show_entries stream=height -of csv=p=0 "$file" 2>/dev/null | head -n1 || true)
-
-              if [[ "$actual" =~ ^[0-9]+$ ]] && [ "$actual" -eq "$TARGET" ]; then
-                echo "✅ Verified video height: ${actual}p (requested ${TARGET}p)"
-                return 0
-              fi
-
-              echo "⚠️ Rejecting output: $(basename "$file") has video height '${actual:-unknown}', requested ${TARGET}p"
-            while IFS= read -r -d '' file; do
-              found=true
-            
-              actual=$(ffprobe -v error \
+          local DIR="$1"
+          local TARGET="$2"
+        
+          if [ "$TARGET" = "best" ] || [ "$TARGET" = "audio" ]; then
+            return 0
+          fi
+        
+          local found=false
+          local file actual
+        
+          while IFS= read -r -d '' file; do
+            found=true
+        
+            actual=$(
+              ffprobe -v error \
                 -select_streams v:0 \
                 -show_entries stream=height \
                 -of csv=p=0 \
-                "$file" 2>/dev/null | head -n1 || true)
-            
-              if [[ "$actual" =~ ^[0-9]+$ ]] && [ "$actual" -eq "$TARGET" ]; then
-                echo "✅ Verified video height: ${actual}p (requested ${TARGET}p)"
-                return 0
-              fi
-            
-              echo "⚠️ Rejecting output: $(basename "$file") has video height '${actual:-unknown}', requested ${TARGET}p"
-            
-            done < <(
-              for FILE in \
-                "$DIR"/*.mp4 \
-                "$DIR"/*.webm \
-                "$DIR"/*.mkv
-              do
-                [ -f "$FILE" ] && printf '%s\0' "$FILE"
-              done
+                "$file" 2>/dev/null | head -n1 || true
             )
+        
+            if [[ "$actual" =~ ^[0-9]+$ ]] && [ "$actual" -eq "$TARGET" ]; then
+              echo "✅ Verified video height: ${actual}p (requested ${TARGET}p)"
+              return 0
+            fi
+        
+            echo "⚠️ Rejecting output: $(basename "$file") has video height '${actual:-unknown}', requested ${TARGET}p"
+        
+          done < <(
+            for FILE in \
+              "$DIR"/*.mp4 \
+              "$DIR"/*.webm \
+              "$DIR"/*.mkv
+            do
+              [ -f "$FILE" ] && printf '%s\0' "$FILE"
+            done
+          )
+        
+          if [ "$found" = false ]; then
+            echo "❌ No video file produced."
+          fi
+        
+          return 1
+        }
 
             if [ "$found" = false ]; then
               echo "❌ No video file produced."
