@@ -475,80 +475,39 @@ jobs:
           MWEB_EXTRACTOR_ARGS="youtube:player_client=mweb;youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416"
 
           has_media_output() {
-            local DIR="$1"
-          
-            for FILE in \
-              "$DIR"/*.mp4 \
-              "$DIR"/*.webm \
-              "$DIR"/*.mkv \
-              "$DIR"/*.mp3
-            do
-              [ -f "$FILE" ] && return 0
-            done
-          
-            return 1
+            find "$1" -maxdepth 1 -type f \(               -iname "*.mp4" -o -iname "*.webm" -o -iname "*.mkv" -o -iname "*.mp3"             \) -print -quit 2>/dev/null | grep -q .
           }
-          
+
           cleanup_download_dir() {
             local DIR="$1"
-          
-            rm -f \
-              "$DIR"/*.mp4 \
-              "$DIR"/*.webm \
-              "$DIR"/*.mkv \
-              "$DIR"/*.mp3 \
-              "$DIR"/*.part \
-              "$DIR"/*.ytdl \
-              "$DIR"/*.jpg \
-              "$DIR"/*.webp \
-              2>/dev/null || true
+            find "$DIR" -maxdepth 1 -type f \(
+              -iname "*.mp4" -o -iname "*.webm" -o -iname "*.mkv" -o -iname "*.mp3"               -o -iname "*.part" -o -iname "*.ytdl" -o -iname "*.jpg" -o -iname "*.webp"             \) -delete 2>/dev/null || true
           }
 
           verify_download_quality() {
-          local DIR="$1"
-          local TARGET="$2"
-        
-          if [ "$TARGET" = "best" ] || [ "$TARGET" = "audio" ]; then
-            return 0
-          fi
-        
-          local found=false
-          local file actual
-        
-          while IFS= read -r -d '' file; do
-            found=true
-        
-            actual=$(
-              ffprobe -v error \
-                -select_streams v:0 \
-                -show_entries stream=height \
-                -of csv=p=0 \
-                "$file" 2>/dev/null | head -n1 || true
-            )
-        
-            if [[ "$actual" =~ ^[0-9]+$ ]] && [ "$actual" -eq "$TARGET" ]; then
-              echo "✅ Verified video height: ${actual}p (requested ${TARGET}p)"
+            local DIR="$1"
+            local TARGET="$2"
+
+            if [ "$TARGET" = "best" ] || [ "$TARGET" = "audio" ]; then
               return 0
             fi
-        
-            echo "⚠️ Rejecting output: $(basename "$file") has video height '${actual:-unknown}', requested ${TARGET}p"
-        
-          done < <(
-            for FILE in \
-              "$DIR"/*.mp4 \
-              "$DIR"/*.webm \
-              "$DIR"/*.mkv
-            do
-              [ -f "$FILE" ] && printf '%s\0' "$FILE"
-            done
-          )
-        
-          if [ "$found" = false ]; then
-            echo "❌ No video file produced."
-          fi
-        
-          return 1
-        }
+
+            local found=false
+            local file actual
+
+            while IFS= read -r -d '' file; do
+              found=true
+              actual=$(ffprobe -v error -select_streams v:0                 -show_entries stream=height -of csv=p=0 "$file" 2>/dev/null | head -n1 || true)
+
+              if [[ "$actual" =~ ^[0-9]+$ ]] && [ "$actual" -eq "$TARGET" ]; then
+                echo "✅ Verified video height: ${actual}p (requested ${TARGET}p)"
+                return 0
+              fi
+
+              echo "⚠️ Rejecting output: $(basename "$file") has video height '${actual:-unknown}', requested ${TARGET}p"
+            done < <(find "$DIR" -maxdepth 1 -type f \(
+              -iname "*.mp4" -o -iname "*.webm" -o -iname "*.mkv"
+            \) -print0)
 
             if [ "$found" = false ]; then
               echo "❌ No video file produced."
