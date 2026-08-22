@@ -369,6 +369,8 @@ jobs:
           HTTP_PROXY: socks5://127.0.0.1:1080
           HTTPS_PROXY: socks5://127.0.0.1:1080
           ALL_PROXY: socks5://127.0.0.1:1080
+          NO_PROXY: 127.0.0.1,localhost,::1
+          no_proxy: 127.0.0.1,localhost,::1
         run: |
           set -euo pipefail
 
@@ -378,7 +380,7 @@ jobs:
           echo $! > "$RUNNER_TEMP/bgutil-provider.pid"
 
           for i in {1..30}; do
-            if curl -fsS --max-time 3 http://127.0.0.1:4416/ping > "$RUNNER_TEMP/bgutil-ping.json"; then
+            if curl --noproxy '*' -fsS --max-time 3 http://127.0.0.1:4416/ping > "$RUNNER_TEMP/bgutil-ping.json"; then
               echo "✅ PO Token Provider is ready"
               cat "$RUNNER_TEMP/bgutil-ping.json"
               exit 0
