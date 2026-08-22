@@ -44,11 +44,11 @@ jobs:
       is_activated: ${{ steps.check.outputs.is_activated }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Restore activation cache
         id: cache-activation
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .activation-status
           key: activation-status-yt-${{ github.repository }}
@@ -87,7 +87,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Fetch and validate activation code
         id: validate
@@ -136,8 +136,6 @@ jobs:
             echo "⚠️ این کد در لیست کدهای معتبر وجود ندارد"
             echo "💡 لطفاً کد صحیح را وارد کنید یا کد جدید خریداری کنید"
             echo ""
-            echo "🔗 برای خرید کد فعالسازی:"
-            echo "   https://pay.avasam.ir/link/769604"
             echo ""
             echo "valid=false" >> $GITHUB_OUTPUT
           fi
@@ -151,14 +149,11 @@ jobs:
           echo ""
           echo "🔴 کد وارد شده معتبر نیست"
           echo ""
-          echo "📌 برای دریافت کد فعالسازی معتبر:"
-          echo "   https://pay.avasam.ir/link/769604"
+          echo "📌 کلید فعالسازی معتبر وارد کنید."
           echo ""
 
           cat >> $GITHUB_STEP_SUMMARY << 'EOF'
           <div align="center">
-          <img src="https://raw.githubusercontent.com/nikzad-avasam/notifications/refs/heads/main/assets/invalid-key.gif" alt="Invalid Key" width="250" />
-
           # خطا در فعالسازی
           </div>
 
@@ -175,9 +170,9 @@ jobs:
           - وارد کردن کلید فعالسازی فقط یکبار کافی است. دفعات بعدی نیاز نیست.
           - در صورت بروز هرگونه مشکل در پیام رسان بله به ایدی @ask_here پیام دهید.
 
-          **لینک خرید کلید فعالسازی :**
+          **راهنما:**
 
-          [https://pay.avasam.ir/link/769604](https://pay.avasam.ir/link/769604)
+          یک کلید فعالسازی معتبر وارد کنید.
 
           </div>
           EOF
@@ -196,7 +191,7 @@ jobs:
 
       - name: Cache activation status
         if: steps.validate.outputs.valid == 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: .activation-status
           key: activation-status-yt-${{ github.repository }}
@@ -229,21 +224,13 @@ jobs:
           echo ""
           echo "⚠️ این دانلودر هنوز فعال نشده است"
           echo ""
-          echo "📌 برای فعالسازی دائمی:"
-          echo "   1️⃣ به لینک زیر بروید و پرداخت کنید:"
-          echo "      https://pay.avasam.ir/link/769604"
-          echo ""
-          echo "   2️⃣ کد فعالسازی را دریافت کنید"
-          echo ""
-          echo "   3️⃣ workflow را دوباره اجرا کنید"
-          echo "      و کد را در فیلد 'کد فعالسازی' وارد کنید"
+          echo "📌 برای فعالسازی:"
+          echo "   کد فعالسازی معتبر را در فیلد 'کد فعالسازی' وارد کنید"
           echo ""
           echo "========================================"
 
           cat >> $GITHUB_STEP_SUMMARY << 'EOF'
           <div align="center">
-          <img src="https://raw.githubusercontent.com/nikzad-avasam/notifications/refs/heads/main/assets/invalid-key.gif" alt="Invalid Key" width="250" />
-
           # خطا در فعالسازی
           </div>
 
@@ -260,9 +247,9 @@ jobs:
           - وارد کردن کلید فعالسازی فقط یکبار کافی است. دفعات بعدی نیاز نیست.
           - در صورت بروز هرگونه مشکل در پیام رسان بله به ایدی @ask_here پیام دهید.
 
-          **لینک خرید کلید فعالسازی :**
+          **راهنما:**
 
-          [https://pay.avasam.ir/link/769604](https://pay.avasam.ir/link/769604)
+          یک کلید فعالسازی معتبر وارد کنید.
 
           </div>
           EOF
@@ -287,10 +274,16 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
 
       - name: Configure Git for Large Files
         run: |
@@ -347,9 +340,77 @@ jobs:
           curl -fsSL https://deno.land/install.sh | sh
           export DENO_INSTALL="$HOME/.deno"
           export PATH="$DENO_INSTALL/bin:$PATH"
-          echo "$DENO_INSTALL/bin" >> $GITHUB_PATH
+          echo "$DENO_INSTALL/bin" >> "$GITHUB_PATH"
+
+          node --version
+          npm --version
           deno --version
-          pip3 install --upgrade --pre "yt-dlp[default]"
+
+          python3 -m pip install --upgrade pip
+          python3 -m pip install --upgrade --pre "yt-dlp[default]"
+          python3 -m pip install --upgrade "bgutil-ytdlp-pot-provider"
+
+      - name: Install and build PO Token Provider
+        run: |
+          set -euo pipefail
+
+          PROVIDER_DIR="$RUNNER_TEMP/bgutil-ytdlp-pot-provider"
+          git clone --depth 1 --single-branch --branch 1.3.1             https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git             "$PROVIDER_DIR"
+
+          cd "$PROVIDER_DIR/server"
+          npm ci
+          npx tsc
+
+          test -f build/main.js
+          echo "PO Token provider built successfully."
+
+      - name: Start PO Token Provider
+        env:
+          HTTP_PROXY: socks5://127.0.0.1:1080
+          HTTPS_PROXY: socks5://127.0.0.1:1080
+          ALL_PROXY: socks5://127.0.0.1:1080
+        run: |
+          set -euo pipefail
+
+          PROVIDER_DIR="$RUNNER_TEMP/bgutil-ytdlp-pot-provider"
+          nohup node "$PROVIDER_DIR/server/build/main.js"             > "$RUNNER_TEMP/bgutil-provider.log" 2>&1 &
+
+          echo $! > "$RUNNER_TEMP/bgutil-provider.pid"
+
+          for i in {1..30}; do
+            if curl -fsS --max-time 3 http://127.0.0.1:4416/ping > "$RUNNER_TEMP/bgutil-ping.json"; then
+              echo "✅ PO Token Provider is ready"
+              cat "$RUNNER_TEMP/bgutil-ping.json"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "❌ PO Token Provider failed to start"
+          cat "$RUNNER_TEMP/bgutil-provider.log" || true
+          exit 1
+
+      - name: Verify yt-dlp PO Token integration
+        run: |
+          set -euo pipefail
+
+          echo "Checking yt-dlp version..."
+          yt-dlp --version
+
+          echo "Checking installed PO Token provider..."
+          yt-dlp --verbose --simulate \
+            --ignore-config \
+            --extractor-args "youtube:player_client=mweb;youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416" \
+            "https://www.youtube.com/watch?v=BaW_jenozKc" \
+            2>&1 | tee "$RUNNER_TEMP/ytdlp-pot-check.log" || true
+
+          if grep -qE '\[youtube\] \[pot\] PO Token Providers:.*bgutil:http-1\.3\.1' "$RUNNER_TEMP/ytdlp-pot-check.log"; then
+            echo "✅ yt-dlp detected bgutil HTTP PO Token provider."
+          else
+            echo "❌ yt-dlp did not detect bgutil HTTP PO Token provider."
+            cat "$RUNNER_TEMP/ytdlp-pot-check.log"
+            exit 1
+          fi
 
       - name: Download YouTube Video(s)
         env:
@@ -388,18 +449,85 @@ jobs:
             python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$1"
           }
           case "$QUALITY" in
-            "audio") FORMAT="bestaudio/bestaudio*/best";;
-            "best") FORMAT="bestvideo+bestaudio/bestvideo*+bestaudio*/best";;
-            "2160"|"4k") FORMAT="bestvideo[height<=2160]+bestaudio/bestvideo[height<=2160]*+bestaudio*/bestvideo+bestaudio/best";;
-            "1440"|"2k") FORMAT="bestvideo[height<=1440]+bestaudio/bestvideo[height<=1440]*+bestaudio*/bestvideo+bestaudio/best";;
-            "1080") FORMAT="bestvideo[height<=1080]+bestaudio/bestvideo[height<=1080]*+bestaudio*/bestvideo+bestaudio/best";;
-            "720") FORMAT="bestvideo[height<=720]+bestaudio/bestvideo[height<=720]*+bestaudio*/bestvideo+bestaudio/best";;
-            "480") FORMAT="bestvideo[height<=480]+bestaudio/bestvideo[height<=480]*+bestaudio*/bestvideo+bestaudio/best";;
-            *) FORMAT="bestvideo+bestaudio/bestvideo*+bestaudio*/best";;
+            "audio")
+              FORMAT="bestaudio"
+              ;;
+            "best")
+              FORMAT="bestvideo+bestaudio/best"
+              ;;
+            "2160"|"4k")
+              FORMAT="bestvideo[height=2160]+bestaudio/best[height=2160]"
+              ;;
+            "1440"|"2k")
+              FORMAT="bestvideo[height=1440]+bestaudio/best[height=1440]"
+              ;;
+            "1080")
+              FORMAT="bestvideo[height=1080]+bestaudio/best[height=1080]"
+              ;;
+            "720")
+              FORMAT="bestvideo[height=720]+bestaudio/best[height=720]"
+              ;;
+            "480")
+              FORMAT="bestvideo[height=480]+bestaudio/best[height=480]"
+              ;;
+            *)
+              echo "❌ Unsupported quality: $QUALITY"
+              exit 1
+              ;;
           esac
+
+          # yt-dlp + bgutil provider integration for the mweb client.
+          MWEB_EXTRACTOR_ARGS="youtube:player_client=mweb;youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416"
+
+          has_media_output() {
+            find "$1" -maxdepth 1 -type f \(               -iname "*.mp4" -o -iname "*.webm" -o -iname "*.mkv" -o -iname "*.mp3"             \) -print -quit 2>/dev/null | grep -q .
+          }
+
+          cleanup_download_dir() {
+            local DIR="$1"
+            find "$DIR" -maxdepth 1 -type f \(
+              -iname "*.mp4" -o -iname "*.webm" -o -iname "*.mkv" -o -iname "*.mp3"               -o -iname "*.part" -o -iname "*.ytdl" -o -iname "*.jpg" -o -iname "*.webp"             \) -delete 2>/dev/null || true
+          }
+
+          verify_download_quality() {
+            local DIR="$1"
+            local TARGET="$2"
+
+            if [ "$TARGET" = "best" ] || [ "$TARGET" = "audio" ]; then
+              return 0
+            fi
+
+            local found=false
+            local file actual
+
+            while IFS= read -r -d '' file; do
+              found=true
+              actual=$(ffprobe -v error -select_streams v:0                 -show_entries stream=height -of csv=p=0 "$file" 2>/dev/null | head -n1 || true)
+
+              if [[ "$actual" =~ ^[0-9]+$ ]] && [ "$actual" -eq "$TARGET" ]; then
+                echo "✅ Verified video height: ${actual}p (requested ${TARGET}p)"
+                return 0
+              fi
+
+              echo "⚠️ Rejecting output: $(basename "$file") has video height '${actual:-unknown}', requested ${TARGET}p"
+            done < <(find "$DIR" -maxdepth 1 -type f \(
+              -iname "*.mp4" -o -iname "*.webm" -o -iname "*.mkv"
+            \) -print0)
+
+            if [ "$found" = false ]; then
+              echo "❌ No video file produced."
+            fi
+            return 1
+          }
+
           download_video() {
-            local METHOD=$1; local URL=$2; local TMP_DIR=$3;
+            local METHOD=$1
+            local URL=$2
+            local TMP_DIR=$3
+
             echo "Trying download method $METHOD..."
+            cleanup_download_dir "$TMP_DIR"
+
             if [ "$QUALITY" = "audio" ]; then
               COMMON_FLAGS="--extract-audio --audio-format mp3 --audio-quality 0 --write-thumbnail --convert-thumbnails jpg --no-cache-dir --output ${TMP_DIR}/%(title)s.%(ext)s --no-part --no-playlist --retries 5 --fragment-retries 5 --no-check-certificates --concurrent-fragments 8 --buffer-size 16K --http-chunk-size 10M --progress --newline"
             elif [ "$QUALITY" = "best" ]; then
@@ -407,17 +535,46 @@ jobs:
             else
               COMMON_FLAGS="--merge-output-format mp4 --write-thumbnail --convert-thumbnails jpg --no-cache-dir --output ${TMP_DIR}/%(title)s.%(ext)s --no-part --no-playlist --retries 5 --fragment-retries 5 --no-check-certificates --concurrent-fragments 8 --buffer-size 16K --http-chunk-size 10M --progress --newline"
             fi
+
             case $METHOD in
-              1) yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=web" --js-runtimes deno --remote-components ejs:github --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" --add-header "Accept-Language:en-US,en;q=0.9" "$URL";;
-              2) yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=web" --js-runtimes deno --remote-components ejs:npm --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" --add-header "Accept-Language:en-US,en;q=0.9" "$URL";;
-              3) yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=web,mweb,android_vr" --js-runtimes deno --remote-components ejs:github "$URL";;
-              4) yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=mweb" "$URL";;
-              5) yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=android_vr" "$URL";;
-              6) yt-dlp --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=web" --js-runtimes deno --remote-components ejs:github "$URL";;
-              7) yt-dlp --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=mweb" "$URL";;
-              8) yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS --extractor-args "youtube:player_client=android" --user-agent "Mozilla/5.0 (Linux; Android 12; SM-S906N Build/QP1A.190711.020) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36" "$URL";;
+              1)
+                yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS                   --extractor-args "$MWEB_EXTRACTOR_ARGS"                   --js-runtimes deno --remote-components ejs:github "$URL"
+                ;;
+              2)
+                yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS                   --extractor-args "$MWEB_EXTRACTOR_ARGS"                   --js-runtimes deno --remote-components ejs:npm "$URL"
+                ;;
+              3)
+                yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS                   --extractor-args "$MWEB_EXTRACTOR_ARGS"                   --js-runtimes deno --remote-components ejs:github "$URL"
+                ;;
+              4)
+                yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS                   --extractor-args "$MWEB_EXTRACTOR_ARGS" "$URL"
+                ;;
+              5)
+                yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS                   --extractor-args "youtube:player_client=web"                   --js-runtimes deno --remote-components ejs:github "$URL"
+                ;;
+              6)
+                yt-dlp --proxy "socks5://127.0.0.1:1080" --format "$FORMAT" $COMMON_FLAGS                   --extractor-args "youtube:player_client=web"                   --js-runtimes deno --remote-components ejs:npm "$URL"
+                ;;
+              7)
+                yt-dlp --format "$FORMAT" $COMMON_FLAGS                   --extractor-args "$MWEB_EXTRACTOR_ARGS" "$URL"
+                ;;
+              8)
+                yt-dlp --format "$FORMAT" $COMMON_FLAGS                   --extractor-args "youtube:player_client=android"                   --user-agent "Mozilla/5.0 (Linux; Android 12; SM-S906N Build/QP1A.190711.020) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36" "$URL"
+                ;;
+              *)
+                echo "Unknown download method: $METHOD"
+                return 2
+                ;;
             esac
+
+            if ! has_media_output "$TMP_DIR"; then
+              echo "❌ yt-dlp exited without a media output."
+              return 1
+            fi
+
+            return 0
           }
+
           RANDOM_WORDS=("alpha" "beta" "gamma" "delta" "epsilon" "zeta" "theta" "kappa" "lambda" "sigma" "omega" "nova" "star" "moon" "sun" "sky" "cloud" "river" "ocean" "mountain")
           get_random_word() { echo "${RANDOM_WORDS[$RANDOM % ${#RANDOM_WORDS[@]}]}_$RANDOM"; }
           get_unique_folder() {
@@ -448,25 +605,23 @@ jobs:
             TMP_DIR="tmp_downloads_${URL_INDEX}"
             mkdir -p "$TMP_DIR"
             DOWNLOAD_SUCCESS=false
-            for METHOD in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-              if download_video $METHOD "$URL" "$TMP_DIR"; then
-                echo "Download successful with method $METHOD!"
-                QUALITY_OK=true
-                if [ "$QUALITY" != "best" ] && [ "$QUALITY" != "audio" ]; then
-                  for DOWNLOADED_FILE in "$TMP_DIR"/*.mp4 "$TMP_DIR"/*.webm "$TMP_DIR"/*.mkv; do
-                    [ -f "$DOWNLOADED_FILE" ] || continue
-                    ACTUAL_HEIGHT=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$DOWNLOADED_FILE" 2>/dev/null || echo "unknown")
-                    if [ "$ACTUAL_HEIGHT" != "unknown" ] && [ "$ACTUAL_HEIGHT" -lt $(( QUALITY - 150 )) ] 2>/dev/null; then
-                      echo "⚠️  Method $METHOD delivered ${ACTUAL_HEIGHT}p instead of ${QUALITY}p — rejecting..."
-                      QUALITY_OK=false; rm -f "$DOWNLOADED_FILE";
-                    fi
-                  done
+            for METHOD in 1 2 3 4 5 6 7 8; do
+              cleanup_download_dir "$TMP_DIR"
+
+              if download_video "$METHOD" "$URL" "$TMP_DIR"; then
+                if verify_download_quality "$TMP_DIR" "$QUALITY"; then
+                  echo "✅ Download successful with method $METHOD"
+                  DOWNLOAD_SUCCESS=true
+                  break
                 fi
-                if [ "$QUALITY_OK" = true ]; then DOWNLOAD_SUCCESS=true; break; fi
+
+                echo "⚠️ Method $METHOD produced an invalid quality; retrying..."
+                cleanup_download_dir "$TMP_DIR"
               else
-                echo "Method $METHOD failed, waiting 3 seconds..."
-                sleep 3
+                echo "⚠️ Method $METHOD failed; retrying..."
               fi
+
+              sleep 3
             done
             if [ "$DOWNLOAD_SUCCESS" = false ]; then
               echo "❌ All download methods failed for URL: $URL — skipping."; rm -rf "$TMP_DIR"; continue;
@@ -586,7 +741,7 @@ jobs:
                   printf '%s\n' ""
                   printf '%s\n' "---"
                   printf '%s\n' ""
-                  printf '%s\n' "*This tool created by [avasam.ir](https://avasam.ir)*"
+                  printf '%s\n' "*This tool was created by OurtubeCracked*"
                 } > "$README_FILE"
 
                 echo "Created README.md"
@@ -656,7 +811,7 @@ jobs:
                     printf '%s\n' ""
                     printf '%s\n' "---"
                     printf '%s\n' ""
-                    printf '%s\n' "*This tool created by [avasam.ir](https://avasam.ir)*"
+                    printf '%s\n' "*This tool was created by OurtubeCracked*"
                   } > "$README_FILE"
 
                   echo "Created password-protected zip archive and README.md"
@@ -716,7 +871,7 @@ jobs:
                     printf '%s\n' ""
                     printf '%s\n' "---"
                     printf '%s\n' ""
-                    printf '%s\n' "*This tool created by [avasam.ir](https://avasam.ir)*"
+                    printf '%s\n' "*This tool was created by OurtubeCracked*"
                   } > "$README_FILE"
 
                   echo "Copied file and created README.md"
@@ -928,7 +1083,7 @@ jobs:
               } > videos/README.md
               git add -f videos/README.md
               if ! git diff --cached --quiet; then
-                git commit -m "[AVASAM] Initialize videos folder [skip ci]"
+                git commit -m "[OurtubeCracked] Initialize videos folder [skip ci]"
                 PUSH_RETRY=0
                 while [ $PUSH_RETRY -lt 5 ]; do
                   PUSH_RETRY=$((PUSH_RETRY + 1))
@@ -980,7 +1135,7 @@ jobs:
           git add -f videos/README.md
 
           if ! git diff --cached --quiet; then
-            git commit -m "[AVASAM] YouTube download [skip ci]"
+            git commit -m "[OurtubeCracked] YouTube download [skip ci]"
             PUSH_RETRY=0
             while [ $PUSH_RETRY -lt 10 ]; do
               PUSH_RETRY=$((PUSH_RETRY + 1))
@@ -996,11 +1151,10 @@ jobs:
                 git add -f videos/
                 regenerate_master_readme
                 git add -f videos/README.md
-                git diff --cached --quiet || git commit -m "[AVASAM] YouTube download [skip ci]"
+                git diff --cached --quiet || git commit -m "[OurtubeCracked] YouTube download [skip ci]"
               fi
             done
           fi
           echo "=========================================="
           echo "All files pushed successfully!"
-          echo "made in AVASAM (https://avasam.ir)"
           echo "=========================================="
